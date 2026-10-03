@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>บิลค่าเช่า</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai+Looped:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  body{margin:0;background:#e9edf5;font-family:'IBM Plex Sans Thai Looped',Sarabun,Tahoma,sans-serif;color:#12203f}
+  .wrap{max-width:640px;margin:0 auto;padding:14px}
+  .btn{display:block;width:100%;box-sizing:border-box;border:0;border-radius:12px;padding:15px;font:600 19px 'IBM Plex Sans Thai Looped',Tahoma,sans-serif;color:#fff;background:#1b3f8f;text-align:center;text-decoration:none;margin:0 0 10px;cursor:pointer}
+  .btn.line{background:#06a94d}
+  .btn:focus-visible{outline:3px solid #f2b441;outline-offset:2px}
+  .hint{font-size:15px;color:#5b6785;text-align:center;margin:2px 0 12px;line-height:1.5}
+  img{width:100%;height:auto;display:block;border-radius:6px;box-shadow:0 1px 2px rgba(18,32,63,.18),0 8px 24px rgba(18,32,63,.12);background:#fff}
+  #msg{padding:30px 10px;text-align:center;font-size:18px;line-height:1.6}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="msg">กำลังสร้างรูปบิล…</div>
+  <div id="ui" style="display:none">
+    <button id="share" class="btn line" style="display:none">ส่งรูปเข้า LINE</button>
+    <a id="save" class="btn">บันทึกรูปลงเครื่อง</a>
+    <div class="hint">หรือกดค้างที่รูป แล้วเลือก “บันทึกรูปภาพ”</div>
+    <img id="out" alt="รูปบิล">
+  </div>
+</div>
+<script>
+(function(){
+  var FAM = "'IBM Plex Sans Thai Looped', Sarabun, Tahoma, sans-serif";
+  var INK='#1b3f8f', NAVY='#12203f', MUTED='#5b6785', RULE='#c9d3ea', RULE2='#dce3f3', TINT='#eef2fa', PANEL='#f2f5fb', GREEN='#1e8e4e';
+  var THEMES={
+    'น้ำเงิน':['#1b3f8f','#12203f','#5b6785','#c9d3ea','#dce3f3','#eef2fa','#f2f5fb'],
+    'เขียว':['#1f6b4a','#172a22','#5c6b64','#c5ddd0','#dbeae2','#ecf5f0','#f1f7f4'],
+    'ม่วง':['#5b3a8e','#231a36','#665f78','#d6cbea','#e5ddf3','#f2eefa','#f5f2fb'],
+    'ชมพู':['#b02a66','#35162a','#735c68','#eccbdb','#f4dde8','#fbeef4','#fcf2f6'],
+    'แดง':['#8f2433','#341a1e','#735f62','#eacbd0','#f3dde0','#faeef0','#fbf2f3'],
+    'เทา':['#2f3542','#1c2230','#5f6675','#cfd3da','#e1e4e9','#f0f1f4','#f4f5f7']
+  };
+  function theme(name){ var t=THEMES[String(name||'').trim()]; if(!t) return; INK=t[0]; NAVY=t[1]; MUTED=t[2]; RULE=t[3]; RULE2=t[4]; TINT=t[5]; PANEL=t[6];
+    var bs=document.querySelectorAll('.btn:not(.line)'); for(var i=0;i<bs.length;i++) bs[i].style.background=INK; document.body.style.color=NAVY; }
+  function num(s){ var n = parseFloat(String(s==null?'':s).replace(/,/g,'')); return isNaN(n)?0:n; }
+  function money(s){ var n=num(s); return n.toLocaleString('en-US',{minimumFractionDigits:(n%1?2:0),maximumFractionDigits:2}); }
+  function getHash(cb){
+    try{
+      if(window.google && google.script && google.script.url){ google.script.url.getLocation(function(l){ cb(l.hash||''); }); return; }
+    }catch(e){}
+    cb(String(location.hash||'').replace(/^#/,''));
+  }
+  function F(ctx, w, px){ ctx.font = w+' '+px+'px '+FAM; }
+  function fit(ctx, text, w, px, maxW, minPx){ F(ctx,w,px); while(px>(minPx||18) && ctx.measureText(text).width>maxW){ px-=1; F(ctx,w,px); } return px; }
+  function wrap(ctx, text, maxW){
+    var words=String(text).split(' '), lines=[], cur='';
+    for(var i=0;i<words.length;i++){
+      var t = cur? cur+' '+words[i] : words[i];
+      if(ctx.measureText(t).width<=maxW || !cur){ cur=t; } else { lines.push(cur); cur=words[i]; }
+    }
+    if(cur) lines.push(cur);
+    return lines;
+  }
+  function rrect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+
+  function draw(d){
+    var W=1080, P=56, TW=W-2*P;
+    var big=document.createElement('canvas'); big.width=W; big.height=2600;
+    var ctx=big.getContext('2d'); ctx.textBaseline='middle';
+    ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,W,big.height);
+
+    var total=num(d.total), paidAmt=num(d.paid), remain=(d.remain===''? total-paidAmt : num(d.remain));
+    var paid = d.status==='จ่ายแล้ว' || (total>0 && remain<=0 && paidAmt>0);
+    var partial = !paid && paidAmt>0;
+
+    // ---- header band
+    var bandH = d.sub ? 214 : 176;
+    ctx.fillStyle=INK; ctx.fillRect(0,0,W,bandH);
+    var rightW=250, title=d.title||'บิลค่าเช่า';
+    ctx.fillStyle='#ffffff'; ctx.textAlign='left';
+    fit(ctx,title,700,64,TW-rightW-30,36); ctx.fillText(title,P,d.sub?84:bandH/2+6);
+    if(d.sub){ ctx.fillStyle='rgba(255,255,255,.86)'; fit(ctx,d.sub,400,28,TW-rightW-30,20); ctx.fillText(d.sub,P,150); }
+    ctx.textAlign='right';
+    ctx.fillStyle='rgba(255,255,255,.8)'; F(ctx,400,26); ctx.fillText('รอบบิล',W-P,bandH/2-26);
+    ctx.fillStyle='#ffffff'; fit(ctx,d.round,600,42,rightW,26); ctx.fillText(d.round,W-P,bandH/2+22);
+
+    // ---- room
+    var y=bandH+62;
+    ctx.textAlign='left'; ctx.fillStyle=NAVY; fit(ctx,d.room,700,48,TW,30); ctx.fillText(d.room,P,y); y+=50;
+    if(d.addr){ ctx.fillStyle=MUTED; fit(ctx,d.addr,400,30,TW,20); ctx.fillText(d.addr,P,y); y+=44; }
+    y+=14;
+
+    // ---- table
+    var col=[264,140,140,104,120,200], heads=['รายการ','ครั้งก่อน','ครั้งนี้','หน่วย','หน่วยละ','จำนวนเงิน'];
+    var rows=[];
+    rows.push({c:['ค่าเช่า','','','','',money(d.rent)]});
+    if(d.f1==='ไฟหลวง') rows.push({c:['ค่าไฟ','','','','','–'], note:'ไฟหลวง (ไม่รวมในบิลนี้)'});
+    else if(d.f1!=='' || num(d.elec)>0) rows.push({c:['ค่าไฟ',d.f1,d.f2,d.f3,d.f4,money(d.elec)]});
+    if(d.w1==='น้ำหลวง') rows.push({c:['ค่าน้ำ','','','','','–'], note:'น้ำหลวง (ไม่รวมในบิลนี้)'});
+    else if(d.w1!=='' || num(d.water)>0) rows.push({c:['ค่าน้ำ',d.w1,d.w2,d.w3,d.w4,money(d.water)]});
+    if(num(d.trash)>0) rows.push({c:['ค่าขยะ','','','','',money(d.trash)]});
+    if(num(d.carry)>0) rows.push({c:['ค้างจ่ายยกมา','','','','',money(d.carry)]});
+    if(num(d.disc)>0) rows.push({c:['ส่วนลด','','','','','-'+money(d.disc)]});
+    if(partial){ rows.push({c:['รวมทั้งสิ้น','','','','',money(total)], strong:true}); rows.push({c:['รับเงินแล้ว','','','','','-'+money(paidAmt)]}); }
+
+    var HH=58, RH=70, ty=y, x, k;
+    ctx.fillStyle=TINT; ctx.fillRect(P,ty,TW,HH);
+    x=P; ctx.fillStyle=INK;
+    for(k=0;k<6;k++){ fit(ctx,heads[k],600,26,col[k]-24,18); if(k===0){ctx.textAlign='left'; ctx.fillText(heads[k],x+14,ty+HH/2+1);} else {ctx.textAlign='right'; ctx.fillText(heads[k],x+col[k]-14,ty+HH/2+1);} x+=col[k]; }
+    var by=ty+HH;
+    for(var i=0;i<rows.length;i++){
+      var r=rows[i], ry=by+i*RH; x=P;
+      for(k=0;k<6;k++){
+        var t=r.c[k]==null?'':String(r.c[k]);
+        if(k===0){ ctx.fillStyle=NAVY; ctx.textAlign='left'; fit(ctx,t,r.strong?600:500,34,col[0]-24,22); ctx.fillText(t,x+14,ry+RH/2+1); }
+        else if(k===5){ ctx.fillStyle=NAVY; ctx.textAlign='right'; fit(ctx,t,r.strong?700:500,36,col[5]-24,22); ctx.fillText(t,x+col[k]-14,ry+RH/2+1); }
+        else if(!r.note){ ctx.fillStyle=MUTED; ctx.textAlign='right'; fit(ctx,t,400,30,col[k]-20,18); ctx.fillText(t,x+col[k]-14,ry+RH/2+1); }
+        x+=col[k];
+      }
+      if(r.note){ ctx.fillStyle=MUTED; ctx.textAlign='left'; fit(ctx,r.note,400,30,col[1]+col[2]+col[3]+col[4]-28,20); ctx.fillText(r.note,P+col[0]+14,ry+RH/2+1); }
+    }
+    var tb=by+rows.length*RH;
+    // rules
+    ctx.lineWidth=1.5; ctx.strokeStyle=RULE;
+    for(i=1;i<rows.length;i++){ ctx.beginPath(); ctx.moveTo(P,by+i*RH); ctx.lineTo(P+TW,by+i*RH); ctx.stroke(); }
+    ctx.strokeStyle=RULE2; x=P;
+    for(k=0;k<5;k++){ x+=col[k]; var skipTop=by, top=ty;
+      ctx.beginPath(); ctx.moveTo(x,top); ctx.lineTo(x,skipTop); ctx.stroke();
+      for(i=0;i<rows.length;i++){ if(rows[i].note && k>0) continue; ctx.beginPath(); ctx.moveTo(x,by+i*RH); ctx.lineTo(x,by+(i+1)*RH); ctx.stroke(); }
+    }
+    ctx.strokeStyle=INK; ctx.lineWidth=3;
+    [ty,by,tb].forEach(function(yy,ix){ ctx.lineWidth=(ix===1?2:3); ctx.beginPath(); ctx.moveTo(P,yy); ctx.lineTo(P+TW,yy); ctx.stroke(); });
+
+    // ---- amount panel
+    y=tb+30; var PH=132;
+    var label = paid ? 'ยอดรวม' : (partial ? 'ยอดคงเหลือที่ต้องชำระ' : 'ยอดที่ต้องชำระ');
+    var amt = money(paid? total : (partial? remain : total));
+    rrect(ctx,P,y,TW,PH,18); ctx.fillStyle = paid ? '#e4f4ea' : INK; ctx.fill();
+    var fg = paid ? NAVY : '#ffffff';
+    ctx.textAlign='right'; ctx.fillStyle=fg; F(ctx,500,32); var bw=ctx.measureText(' บาท').width; ctx.fillText(' บาท',P+TW-30,y+PH/2+10);
+    F(ctx,700,72); var aw=ctx.measureText(amt).width; ctx.fillText(amt,P+TW-30-bw,y+PH/2+2);
+    ctx.textAlign='left'; ctx.fillStyle = paid ? NAVY : 'rgba(255,255,255,.92)'; fit(ctx,label,500,34,TW-60-aw-bw-30,22); ctx.fillText(label,P+30,y+PH/2+2);
+    if(paid){
+      // rubber stamp
+      ctx.save(); var sx=P+TW*0.42, sy=y+PH/2; ctx.translate(sx,sy); ctx.rotate(-7*Math.PI/180);
+      F(ctx,700,46); var sw=ctx.measureText('ชำระแล้ว').width+56, sh=84;
+      ctx.strokeStyle=GREEN; ctx.lineWidth=5; rrect(ctx,-sw/2,-sh/2,sw,sh,12); ctx.stroke();
+      ctx.lineWidth=2; rrect(ctx,-sw/2+9,-sh/2+9,sw-18,sh-18,7); ctx.stroke();
+      ctx.fillStyle=GREEN; ctx.textAlign='center'; ctx.fillText('ชำระแล้ว',0,3); ctx.restore();
+    }
+    y+=PH;
+
+    // ---- how to pay
+    if(!paid){
+      y+=26; var kv=[]; if(d.due) kv.push(['กำหนดชำระ','ทุก'+d.due]); if(d.acct) kv.push(['โอนเข้าบัญชี',d.acct]);
+      if(kv.length){
+        var KW=210, VW=TW-56-KW, lines=[], hh=28;
+        F(ctx,600,32);
+        kv.forEach(function(p){ var ls=wrap(ctx,p[1],VW); lines.push(ls); hh+=ls.length*46+10; }); hh+=18;
+        rrect(ctx,P,y,TW,hh,18); ctx.fillStyle=PANEL; ctx.fill();
+        var yy=y+28+23;
+        kv.forEach(function(p,ix){
+          ctx.textAlign='left'; ctx.fillStyle=MUTED; F(ctx,400,28); ctx.fillText(p[0],P+28,yy);
+          ctx.fillStyle=NAVY; F(ctx,600,32); lines[ix].forEach(function(l){ ctx.fillText(l,P+28+KW,yy); yy+=46; }); yy+=10;
+        });
+        y+=hh;
+      }
+    }
+    // ---- notes
+    var notes=[];
+    F(ctx,400,26);
+    if(/^\d/.test(d.w1) && num(d.minAmt)>0) wrap(ctx,'ค่าน้ำไม่ถึง '+d.minUnit+' หน่วย คิดขั้นต่ำ '+money(d.minAmt)+' บาท',TW).forEach(function(l){notes.push(l)});
+    if(d.footer) wrap(ctx,d.footer,TW).forEach(function(l){notes.push(l)});
+    if(notes.length){ y+=30; ctx.fillStyle=MUTED; ctx.textAlign='left'; notes.forEach(function(l){ ctx.fillText(l,P,y+13); y+=40; }); }
+    y+=46;
+    var c=document.createElement('canvas'); c.width=W; c.height=Math.round(y);
+    c.getContext('2d').drawImage(big,0,0);
+    return c;
+  }
+  function show(d){
+    var c=draw(d); var url=c.toDataURL('image/png');
+    var name='บิล-'+(d.room||'')+'-'+(d.round||'')+'.png'; name=name.replace(/[\\/:*?"<>|]/g,'-');
+    var img=document.getElementById('out'); img.src=url;
+    var a=document.getElementById('save'); a.href=url; a.setAttribute('download',name);
+    document.getElementById('msg').style.display='none'; document.getElementById('ui').style.display='block';
+    try{
+      c.toBlob(function(b){
+        var f=new File([b],name,{type:'image/png'});
+        if(navigator.canShare && navigator.canShare({files:[f]})){
+          var s=document.getElementById('share'); s.style.display='block';
+          s.onclick=function(){ navigator.share({files:[f]}).catch(function(){}); };
+        }
+      },'image/png');
+    }catch(e){}
+  }
+  getHash(function(h){
+    var raw=h; try{ raw=decodeURIComponent(h); }catch(e){}
+    var p=raw.split('|');
+    if(p.length<20){ document.getElementById('msg').textContent='ไม่พบข้อมูลบิล กลับไปที่แอปแล้วกดปุ่ม “บิลเป็นรูป” อีกครั้ง'; return; }
+    var d={title:p[0],sub:p[1],room:p[2],addr:p[3],round:p[4],rent:p[5],f1:p[6],f2:p[7],f3:p[8],f4:p[9],elec:p[10],w1:p[11],w2:p[12],w3:p[13],w4:p[14],water:p[15],trash:p[16],carry:p[17],disc:p[18],total:p[19],due:p[20]||'',acct:p[21]||'',minUnit:p[22]||'',minAmt:p[23]||'',footer:p[24]||'',status:p[25]||'',paid:p[26]||'',remain:p[27]==null?'':p[27]};
+    theme(p[28]);
+    for(var k in d) d[k]=String(d[k]).trim();
+    var done=false, go=function(){ if(done) return; done=true; show(d); };
+    if(document.fonts && document.fonts.load){
+      var ws=[400,500,600,700], ps=[];
+      ws.forEach(function(w){ ps.push(document.fonts.load(w+" 34px 'IBM Plex Sans Thai Looped'","บิลค่าเช่า ชำระแล้ว")); ps.push(document.fonts.load(w+" 34px 'IBM Plex Sans Thai Looped'","0123456789 abc,.-")); });
+      Promise.all(ps).then(go,go);
+      setTimeout(go,4000);
+    } else go();
+  });
+})();
+</script>
+</body>
+</html>
