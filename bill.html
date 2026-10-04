@@ -37,6 +37,7 @@
     <div class="back">เสร็จแล้วกด ◀ AppSheet ที่มุมซ้ายบนของจอ เพื่อกลับไปที่แอป</div>
   </div>
 </div>
+<script src="qrcode.js"></script>
 <script>
 (function(){
   var FAM = "'IBM Plex Sans Thai Looped', Sarabun, Tahoma, sans-serif";
@@ -53,6 +54,21 @@
     var bs=document.querySelectorAll('.btn.plain'); for(var i=0;i<bs.length;i++) bs[i].style.background=INK; document.body.style.color=NAVY; }
   function num(s){ var n = parseFloat(String(s==null?'':s).replace(/,/g,'')); return isNaN(n)?0:n; }
   function money(s){ var n=num(s); return n.toLocaleString('en-US',{minimumFractionDigits:(n%1?2:0),maximumFractionDigits:2}); }
+  // ข้อความใน QR พร้อมเพย์ (มาตรฐาน EMVCo ของ Thai QR Payment) : เบอร์มือถือ 10 หลัก, เลขบัตร 13 หลัก หรือ e-Wallet 15 หลัก
+  function ppDigits(id){ var g=String(id==null?'':id).replace(/\D/g,''); if(g.length===9) g='0'+g; return g; }
+  function ppPayload(id, amount){
+    var g=ppDigits(id), tag, val;
+    if(g.length===10 && g.charAt(0)==='0'){ tag='01'; val='0066'+g.slice(1); }
+    else if(g.length===13){ tag='02'; val=g; }
+    else if(g.length===15){ tag='03'; val=g; }
+    else return '';
+    var f=function(t,v){ return t+('0'+v.length).slice(-2)+v; };
+    var amt=Math.round(num(amount)*100)/100;
+    var s=f('00','01')+f('01',amt>0?'12':'11')+f('29',f('00','A000000677010111')+f(tag,val))+f('58','TH')+f('53','764')+(amt>0?f('54',amt.toFixed(2)):'')+'6304';
+    var crc=0xFFFF; for(var i=0;i<s.length;i++){ crc^=s.charCodeAt(i)<<8; for(var j=0;j<8;j++){ crc=(crc&0x8000)?((crc<<1)^0x1021):(crc<<1); crc&=0xFFFF; } }
+    return s+('0000'+crc.toString(16).toUpperCase()).slice(-4);
+  }
+  function ppMask(id){ var g=ppDigits(id); if(g.length===10) return 'xxx-xxx-'+g.slice(-4); return 'x-xxxx-xxxxx-'+g.slice(-3,-1)+'-'+g.slice(-1); }
   function getHash(cb){
     try{
       if(window.google && google.script && google.script.url){ google.script.url.getLocation(function(l){ cb(l.hash||''); }); return; }
@@ -175,6 +191,25 @@
         });
         y+=hh;
       }
+      // ---- QR พร้อมเพย์
+      var due = partial? remain : total, payload = (due>0 && typeof qrcode==='function') ? ppPayload(d.pp, due) : '';
+      if(payload){
+        var qr=null; try{ qr=qrcode(0,'M'); qr.addData(payload); qr.make(); }catch(e){ qr=null; }
+        if(qr){
+          var n=qr.getModuleCount(), cell=Math.max(4,Math.floor(400/(n+8))), qs=cell*(n+8), QH=qs+56;
+          y+=26; rrect(ctx,P,y,TW,QH,18); ctx.fillStyle=PANEL; ctx.fill();
+          var qx=P+28, qy=y+28;
+          rrect(ctx,qx,qy,qs,qs,10); ctx.fillStyle='#ffffff'; ctx.fill();
+          ctx.fillStyle='#000000';
+          for(var rr=0;rr<n;rr++) for(var cc=0;cc<n;cc++) if(qr.isDark(rr,cc)) ctx.fillRect(qx+(cc+4)*cell, qy+(rr+4)*cell, cell, cell);
+          var tx=qx+qs+36, tw=P+TW-28-tx, ty2=y+QH/2-118;
+          ctx.fillStyle=NAVY; fit(ctx,'สแกนจ่ายได้เลย',700,44,tw,28); T(ctx,'สแกนจ่ายได้เลย',tx,ty2); ty2+=62;
+          ctx.fillStyle=MUTED; F(ctx,400,29); wrap(ctx,'เปิดแอปธนาคาร แล้วสแกน QR นี้ ยอดเงินจะขึ้นให้เอง',tw).forEach(function(l){ T(ctx,l,tx,ty2); ty2+=42; }); ty2+=26;
+          var at=money(due)+' บาท'; ctx.fillStyle=INK; fit(ctx,at,700,52,tw,30); T(ctx,at,tx,ty2); ty2+=58;
+          ctx.fillStyle=MUTED; fit(ctx,'พร้อมเพย์ '+ppMask(d.pp),400,27,tw,18); T(ctx,'พร้อมเพย์ '+ppMask(d.pp),tx,ty2);
+          y+=QH;
+        }
+      }
     }
     // ---- notes
     var notes=[];
@@ -215,7 +250,7 @@
     var raw=h; try{ raw=decodeURIComponent(h); }catch(e){}
     var p=raw.split('|');
     if(p.length<20){ document.getElementById('msg').textContent='ไม่พบข้อมูลบิล กลับไปที่แอปแล้วกดปุ่ม “บิลเป็นรูป” อีกครั้ง'; return; }
-    var d={title:p[0],sub:p[1],room:p[2],addr:p[3],round:p[4],rent:p[5],f1:p[6],f2:p[7],f3:p[8],f4:p[9],elec:p[10],w1:p[11],w2:p[12],w3:p[13],w4:p[14],water:p[15],trash:p[16],carry:p[17],disc:p[18],total:p[19],due:p[20]||'',acct:p[21]||'',minUnit:p[22]||'',minAmt:p[23]||'',footer:p[24]||'',status:p[25]||'',paid:p[26]||'',remain:p[27]==null?'':p[27]};
+    var d={title:p[0],sub:p[1],room:p[2],addr:p[3],round:p[4],rent:p[5],f1:p[6],f2:p[7],f3:p[8],f4:p[9],elec:p[10],w1:p[11],w2:p[12],w3:p[13],w4:p[14],water:p[15],trash:p[16],carry:p[17],disc:p[18],total:p[19],due:p[20]||'',acct:p[21]||'',minUnit:p[22]||'',minAmt:p[23]||'',footer:p[24]||'',status:p[25]||'',paid:p[26]||'',remain:p[27]==null?'':p[27],pp:p[29]||''};
     theme(p[28]);
     for(var k in d) d[k]=String(d[k]).trim();
     var done=false, go=function(){ if(done) return; done=true; show(d); };
