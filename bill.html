@@ -93,6 +93,15 @@
     }catch(e){}
     cb(String(location.hash||'').replace(/^#/,''));
   }
+  // อ่านข้อมูลบิลจากลิงก์ แล้วแยกเป็นช่องด้วยเครื่องหมาย |
+  // Safari บน iPhone จะแทรก %25 หน้า %XX ที่อยู่ติดหลังอักษรไทยบางตัว (เช่น ก) ตอนรับลิงก์จากแอปอื่น
+  // ทำให้ "ตึก|เลขที่" กลายเป็น "ตึก%7Cเลขที่" แล้วทุกช่องเลื่อนไปหนึ่งช่อง จึงต้องแก้กลับตรงนี้
+  function readFields(h){
+    var dec=function(s){ return String(s).replace(/(?:%[0-9A-Fa-f]{2})+/g, function(m){ try{ return decodeURIComponent(m); }catch(e){ return m; } }); };
+    var raw=dec(h);
+    raw=raw.replace(/([\u0E00-\u0E7F])%([0-7][0-9A-Fa-f])/g, function(m,a,b){ return a+String.fromCharCode(parseInt(b,16)); }).replace(/%7C/gi,'|');
+    return raw.split('|');
+  }
   function F(ctx, w, px){ ctx.font = w+' '+px+'px '+FAM; }
   // วาดข้อความโดยคำนวณตำแหน่งเอง ไม่พึ่ง ctx.textAlign เพราะ Safari บน iPhone จัดชิดขวาข้อความไทยผิด
   function T(ctx, t, x, y, a){ t=String(t); ctx.textAlign='left'; var w=a?ctx.measureText(t).width:0; ctx.fillText(t, a==='r'?x-w:(a==='c'?x-w/2:x), y); }
@@ -325,9 +334,11 @@
     $('bLine').onclick=go; $('bSave').onclick=go; img.onclick=go;
   }
   getHash(function(h){
-    var raw=h; try{ raw=decodeURIComponent(h); }catch(e){}
-    var p=raw.split('|');
+    var p=readFields(h);
     if(p.length<20){ document.getElementById('msg').textContent='ไม่พบข้อมูลบิล กลับไปที่แอปแล้วกดปุ่ม “ส่งบิลให้ลูกค้า” อีกครั้ง'; return; }
+    // ช่องที่ต้องเป็นตัวเลข ถ้าไม่ใช่ แปลว่าข้อมูลเลื่อนช่อง ห้ามแสดงบิลผิด ๆ ออกไป
+    var bad=[5,10,15,16,17,18,19,26,27].some(function(ix){ return p[ix]!=null && !/^-?[\d,]*(\.\d+)?$/.test(String(p[ix]).trim()); });
+    if(bad){ document.getElementById('msg').textContent='ข้อมูลบิลใบนี้อ่านไม่ครบ ยังไม่ควรส่งให้ลูกค้า กลับไปที่แอปแล้วกดปุ่ม “ส่งบิลให้ลูกค้า” อีกครั้ง ถ้ายังขึ้นข้อความนี้ ให้แจ้งผู้ดูแลแอป'; return; }
     var d={title:p[0],sub:p[1],room:p[2],addr:p[3],round:p[4],rent:p[5],f1:p[6],f2:p[7],f3:p[8],f4:p[9],elec:p[10],w1:p[11],w2:p[12],w3:p[13],w4:p[14],water:p[15],trash:p[16],carry:p[17],disc:p[18],total:p[19],due:p[20]||'',acct:p[21]||'',minUnit:p[22]||'',minAmt:p[23]||'',footer:p[24]||'',status:p[25]||'',paid:p[26]||'',remain:p[27]==null?'':p[27],pp:p[29]||''};
     theme(p[28]);
     for(var k in d) d[k]=String(d[k]).trim();
