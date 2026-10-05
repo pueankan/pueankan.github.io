@@ -108,84 +108,124 @@
   }
   function rrect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
 
+  // แยก "505-xxxxxx-x ไทยพาณิชย์ (ชื่อบัญชี)" ออกเป็น เลขบัญชี / ธนาคาร / ชื่อบัญชี  ถ้าแยกไม่ได้จะแสดงข้อความเดิมทั้งบรรทัด
+  function acctParts(s){
+    s=String(s||'').trim(); if(!s) return null;
+    var name='', m=s.match(/[(（]([^)）]+)[)）]/);
+    if(m){ name=m[1].trim(); s=s.replace(m[0],' '); }
+    var n=s.match(/\d[\d\- ]{6,}\d/);
+    if(!n || n[0].replace(/\D/g,'').length<8) return null;
+    var bank=s.replace(n[0],' ').replace(/[·:,]/g,' ').replace(/\s+/g,' ').trim();
+    if(bank && !/^(ธนาคาร|ธ\.|bank)/i.test(bank)) bank='ธนาคาร'+(/^[A-Za-z]/.test(bank)?' ':'')+bank;
+    return {no:n[0].replace(/\s+/g,' ').trim(), bank:bank, name:name};
+  }
+  function tint(ctx,x,y,w,h,color,a){ ctx.save(); ctx.globalAlpha=a; ctx.fillStyle=color; ctx.fillRect(x,y,w,h); ctx.restore(); }
+  // ไอคอนเล็กหน้าชื่อรายการ วาดเองด้วยเส้น ไม่ใช้รูปจากที่อื่น
+  function icon(ctx, kind, cx, cy, color){
+    ctx.save();
+    ctx.globalAlpha=.15; ctx.fillStyle=color; ctx.beginPath(); ctx.arc(cx,cy,25,0,Math.PI*2); ctx.fill(); ctx.globalAlpha=1;
+    ctx.fillStyle=color; ctx.strokeStyle=color; ctx.lineJoin='round'; ctx.lineCap='round'; ctx.translate(cx,cy);
+    if(kind==='home'){
+      ctx.beginPath(); ctx.moveTo(-14,-1); ctx.lineTo(0,-14); ctx.lineTo(14,-1); ctx.closePath(); ctx.fill();
+      ctx.fillRect(-10,-2,20,14); ctx.fillStyle='#ffffff'; ctx.fillRect(-3,3,6,9);
+    } else if(kind==='bolt'){
+      ctx.beginPath(); ctx.moveTo(3,-15); ctx.lineTo(-10,2); ctx.lineTo(-1,2); ctx.lineTo(-4,15); ctx.lineTo(10,-3); ctx.lineTo(1,-3); ctx.closePath(); ctx.fill();
+    } else if(kind==='drop'){
+      ctx.beginPath(); ctx.moveTo(0,-15); ctx.bezierCurveTo(4,-8,11,-2,11,4); ctx.arc(0,4,11,0,Math.PI); ctx.bezierCurveTo(-11,-2,-4,-8,0,-15); ctx.closePath(); ctx.fill();
+    } else if(kind==='bin'){
+      ctx.fillRect(-12,-10,24,4); ctx.fillRect(-4,-14,8,4);
+      ctx.beginPath(); ctx.moveTo(-9,-4); ctx.lineTo(9,-4); ctx.lineTo(7,14); ctx.lineTo(-7,14); ctx.closePath(); ctx.fill();
+    } else if(kind==='alert'){
+      rrect(ctx,-3,-14,6,17,3); ctx.fill(); ctx.beginPath(); ctx.arc(0,10,3.6,0,Math.PI*2); ctx.fill();
+    } else if(kind==='off'){
+      ctx.lineWidth=3.5; ctx.beginPath(); ctx.moveTo(-8,9); ctx.lineTo(8,-9); ctx.stroke();
+      ctx.lineWidth=3; ctx.beginPath(); ctx.arc(-7,-7,4,0,Math.PI*2); ctx.stroke(); ctx.beginPath(); ctx.arc(7,7,4,0,Math.PI*2); ctx.stroke();
+    } else if(kind==='check'){
+      ctx.lineWidth=4.5; ctx.beginPath(); ctx.moveTo(-10,1); ctx.lineTo(-3,8); ctx.lineTo(11,-8); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function draw(d){
     var W=1080, P=56, TW=W-2*P;
-    var big=document.createElement('canvas'); big.width=W; big.height=2600;
+    var big=document.createElement('canvas'); big.width=W; big.height=3200;
     var ctx=big.getContext('2d'); ctx.textBaseline='middle'; try{ ctx.direction='ltr'; }catch(e){} ctx.textAlign='left';
     ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,W,big.height);
 
     var total=num(d.total), paidAmt=num(d.paid), remain=(d.remain===''? total-paidAmt : num(d.remain));
     var paid = d.status==='จ่ายแล้ว' || (total>0 && remain<=0 && paidAmt>0);
     var partial = !paid && paidAmt>0;
+    var i, k, x;
 
-    // ---- header band
-    var bandH = d.sub ? 214 : 176;
+    // ---- หัวบิล : แถบสี มีแนวหลังคาบ้านเรียงกันที่ขอบล่าง
+    var textH = d.sub ? 204 : 168, bandH = textH+58;
     ctx.fillStyle=INK; ctx.fillRect(0,0,W,bandH);
-    var rightW=250, title=d.title||'บิลค่าเช่า';
-    ctx.fillStyle='#ffffff';
-    fit(ctx,title,700,64,TW-rightW-30,36); T(ctx,title,P,d.sub?84:bandH/2+6);
-    if(d.sub){ ctx.fillStyle='rgba(255,255,255,.86)'; fit(ctx,d.sub,400,28,TW-rightW-30,20); T(ctx,d.sub,P,150); }
-    ctx.fillStyle='rgba(255,255,255,.8)'; F(ctx,400,26); T(ctx,'รอบบิล',W-P,bandH/2-26,'r');
-    ctx.fillStyle='#ffffff'; fit(ctx,d.round,600,42,rightW,26); T(ctx,d.round,W-P,bandH/2+22,'r');
+    var house=function(bx,bw,wall,rise){ var top=bandH-wall; ctx.beginPath(); ctx.moveTo(bx,bandH+1); ctx.lineTo(bx,top); ctx.lineTo(bx+bw/2,top-rise); ctx.lineTo(bx+bw,top); ctx.lineTo(bx+bw,bandH+1); ctx.closePath(); ctx.fill(); };
+    var bx=-40; ctx.save(); ctx.globalAlpha=.15; ctx.fillStyle='#ffffff';
+    [[100,50],[84,66],[120,44],[70,72],[104,54],[90,62],[116,46],[74,70],[108,52],[86,64],[112,48],[96,60]].forEach(function(h){ house(bx,h[0],h[1],h[0]*0.24); bx+=h[0]; });
+    ctx.restore(); bx=0; ctx.fillStyle='#ffffff';
+    [[88,18],[64,30],[104,14],[72,34],[92,20],[60,28],[110,12],[76,32],[96,18],[66,26],[100,14],[80,30],[72,20]].forEach(function(h){ house(bx,h[0],h[1],h[0]*0.22); bx+=h[0]; });
+    var title=d.title||'บิลค่าเช่า';
+    F(ctx,600,40); var rw=Math.min(300,Math.max(190,ctx.measureText(d.round).width+56)), pillH=112, pillY=(textH-pillH)/2+4;
+    ctx.save(); ctx.globalAlpha=.16; ctx.fillStyle='#ffffff'; rrect(ctx,W-P-rw,pillY,rw,pillH,20); ctx.fill(); ctx.restore();
+    ctx.fillStyle='rgba(255,255,255,.82)'; F(ctx,400,25); T(ctx,'รอบบิล',W-P-rw/2,pillY+34,'c');
+    ctx.fillStyle='#ffffff'; fit(ctx,d.round,600,40,rw-36,24); T(ctx,d.round,W-P-rw/2,pillY+76,'c');
+    ctx.fillStyle='#ffffff'; fit(ctx,title,700,66,TW-rw-34,36); T(ctx,title,P,d.sub?80:textH/2+8);
+    if(d.sub){ ctx.fillStyle='rgba(255,255,255,.88)'; fit(ctx,d.sub,400,28,TW-rw-34,20); T(ctx,d.sub,P,144); }
 
-    // ---- room
-    var y=bandH+62;
-    ctx.fillStyle=NAVY; fit(ctx,d.room,700,48,TW,30); T(ctx,d.room,P,y); y+=50;
+    // ---- ห้อง
+    var y=bandH+70;
+    ctx.fillStyle=NAVY; fit(ctx,d.room,700,54,TW,30); T(ctx,d.room,P,y); y+=52;
     if(d.addr){ ctx.fillStyle=MUTED; fit(ctx,d.addr,400,30,TW,20); T(ctx,d.addr,P,y); y+=44; }
-    y+=14;
+    y+=18;
 
-    // ---- table
-    var col=[264,140,140,104,120,200], heads=['รายการ','ครั้งก่อน','ครั้งนี้','หน่วย','หน่วยละ','จำนวนเงิน'];
+    // ---- ตารางรายการ
+    var C={rent:INK, elec:'#d98200', water:'#1583c7', trash:'#2e9d5b', carry:RED, disc:'#8e4ec6', paid:GREEN};
+    var col=[278,134,134,100,116,206], heads=['รายการ','ครั้งก่อน','ครั้งนี้','หน่วย','หน่วยละ','จำนวนเงิน'];
     var rows=[];
-    rows.push({c:['ค่าเช่า','','','','',money(d.rent)]});
-    if(d.f1==='ไฟหลวง') rows.push({c:['ค่าไฟ','','','','','–'], note:'ไฟหลวง (ไม่รวมในบิลนี้)'});
-    else if(d.f1!=='' || num(d.elec)>0) rows.push({c:['ค่าไฟ',d.f1,d.f2,d.f3,d.f4,money(d.elec)]});
-    if(d.w1==='น้ำหลวง') rows.push({c:['ค่าน้ำ','','','','','–'], note:'น้ำหลวง (ไม่รวมในบิลนี้)'});
-    else if(d.w1!=='' || num(d.water)>0) rows.push({c:['ค่าน้ำ',d.w1,d.w2,d.w3,d.w4,money(d.water)]});
-    if(num(d.trash)>0) rows.push({c:['ค่าขยะ','','','','',money(d.trash)]});
-    if(num(d.carry)>0) rows.push({c:['ค้างจ่าย','','','','',money(d.carry)], note:'ยอดค้างจากรอบก่อน', red:true});
-    if(num(d.disc)>0) rows.push({c:['ส่วนลด','','','','','-'+money(d.disc)]});
-    if(partial){ rows.push({c:['รวมทั้งสิ้น','','','','',money(total)], strong:true}); rows.push({c:['รับเงินแล้ว','','','','','-'+money(paidAmt)]}); }
+    rows.push({c:['ค่าเช่า','','','','',money(d.rent)], ic:'home', col:C.rent});
+    if(d.f1==='ไฟหลวง') rows.push({c:['ค่าไฟ','','','','','–'], note:'ไฟหลวง (ไม่รวมในบิลนี้)', ic:'bolt', col:C.elec});
+    else if(d.f1!=='' || num(d.elec)>0) rows.push({c:['ค่าไฟ',d.f1,d.f2,d.f3,d.f4,money(d.elec)], ic:'bolt', col:C.elec});
+    if(d.w1==='น้ำหลวง') rows.push({c:['ค่าน้ำ','','','','','–'], note:'น้ำหลวง (ไม่รวมในบิลนี้)', ic:'drop', col:C.water});
+    else if(d.w1!=='' || num(d.water)>0) rows.push({c:['ค่าน้ำ',d.w1,d.w2,d.w3,d.w4,money(d.water)], ic:'drop', col:C.water});
+    if(num(d.trash)>0) rows.push({c:['ค่าขยะ','','','','',money(d.trash)], ic:'bin', col:C.trash});
+    if(num(d.carry)>0) rows.push({c:['ค้างจ่าย','','','','',money(d.carry)], note:'ยอดค้างจากรอบก่อน', red:true, ic:'alert', col:C.carry});
+    if(num(d.disc)>0) rows.push({c:['ส่วนลด','','','','','-'+money(d.disc)], ic:'off', col:C.disc});
+    if(partial){ rows.push({c:['รวมทั้งสิ้น','','','','',money(total)], strong:true}); rows.push({c:['รับเงินแล้ว','','','','','-'+money(paidAmt)], ic:'check', col:C.paid}); }
 
-    var HH=58, RH=70, ty=y, x, k;
+    var HH=60, RH=78, ty=y, by=ty+HH, tb=by+rows.length*RH, R=18;
+    ctx.save(); rrect(ctx,P,ty,TW,tb-ty,R); ctx.clip();
     ctx.fillStyle=TINT; ctx.fillRect(P,ty,TW,HH);
+    for(i=0;i<rows.length;i++){ if(rows[i].red) tint(ctx,P,by+i*RH,TW,RH,RED,.07); else if(rows[i].strong){ ctx.fillStyle=PANEL; ctx.fillRect(P,by+i*RH,TW,RH); } }
+    ctx.restore();
     x=P; ctx.fillStyle=INK;
-    for(k=0;k<6;k++){ fit(ctx,heads[k],600,26,col[k]-24,18); if(k===0){ T(ctx,heads[k],x+14,ty+HH/2+1); } else { T(ctx,heads[k],x+col[k]-14,ty+HH/2+1,'r'); } x+=col[k]; }
-    var by=ty+HH;
-    for(var i=0;i<rows.length;i++){
-      var r=rows[i], ry=by+i*RH; x=P;
+    for(k=0;k<6;k++){ fit(ctx,heads[k],600,26,col[k]-24,18); if(k===0){ T(ctx,heads[k],x+20,ty+HH/2+1); } else { T(ctx,heads[k],x+col[k]-(k===5?22:14),ty+HH/2+1,'r'); } x+=col[k]; }
+    for(i=0;i<rows.length;i++){
+      var r=rows[i], ry=by+i*RH, cy=ry+RH/2+1, nx=P+20; x=P;
+      if(r.ic){ icon(ctx,r.ic,P+20+25,cy-1,r.col); nx=P+20+50+16; }
       for(k=0;k<6;k++){
         var t=r.c[k]==null?'':String(r.c[k]);
-        if(k===0){ ctx.fillStyle=r.red?RED:NAVY; fit(ctx,t,(r.strong||r.red)?700:500,34,col[0]-24,22); T(ctx,t,x+14,ry+RH/2+1); }
-        else if(k===5){ ctx.fillStyle=r.red?RED:NAVY; fit(ctx,t,(r.strong||r.red)?700:500,36,col[5]-24,22); T(ctx,t,x+col[k]-14,ry+RH/2+1,'r'); }
-        else if(!r.note){ ctx.fillStyle=MUTED; fit(ctx,t,400,30,col[k]-20,18); T(ctx,t,x+col[k]-14,ry+RH/2+1,'r'); }
+        if(k===0){ ctx.fillStyle=r.red?RED:NAVY; fit(ctx,t,(r.strong||r.red)?700:500,35,P+col[0]-nx-8,22); T(ctx,t,nx,cy); }
+        else if(k===5){ ctx.fillStyle=r.red?RED:NAVY; fit(ctx,t,(r.strong||r.red)?700:600,38,col[5]-34,22); T(ctx,t,x+col[k]-22,cy,'r'); }
+        else if(!r.note){ ctx.fillStyle=MUTED; fit(ctx,t,400,30,col[k]-18,18); T(ctx,t,x+col[k]-14,cy,'r'); }
         x+=col[k];
       }
-      if(r.note){ ctx.fillStyle=r.red?RED:MUTED; fit(ctx,r.note,400,30,col[1]+col[2]+col[3]+col[4]-28,20); T(ctx,r.note,P+col[0]+14,ry+RH/2+1); }
+      if(r.note){ ctx.fillStyle=r.red?RED:MUTED; fit(ctx,r.note,400,29,col[1]+col[2]+col[3]+col[4]-30,20); T(ctx,r.note,P+col[0]+20,cy); }
     }
-    var tb=by+rows.length*RH;
-    // rules
-    ctx.lineWidth=1.5; ctx.strokeStyle=RULE;
-    for(i=1;i<rows.length;i++){ ctx.beginPath(); ctx.moveTo(P,by+i*RH); ctx.lineTo(P+TW,by+i*RH); ctx.stroke(); }
-    ctx.strokeStyle=RULE2; x=P;
-    for(k=0;k<5;k++){ x+=col[k]; var skipTop=by, top=ty;
-      ctx.beginPath(); ctx.moveTo(x,top); ctx.lineTo(x,skipTop); ctx.stroke();
-      for(i=0;i<rows.length;i++){ if(rows[i].note && k>0) continue; ctx.beginPath(); ctx.moveTo(x,by+i*RH); ctx.lineTo(x,by+(i+1)*RH); ctx.stroke(); }
-    }
-    ctx.strokeStyle=INK; ctx.lineWidth=3;
-    [ty,by,tb].forEach(function(yy,ix){ ctx.lineWidth=(ix===1?2:3); ctx.beginPath(); ctx.moveTo(P,yy); ctx.lineTo(P+TW,yy); ctx.stroke(); });
+    ctx.lineWidth=1.5; ctx.strokeStyle=RULE2;
+    for(i=1;i<rows.length;i++){ ctx.beginPath(); ctx.moveTo(P+20,by+i*RH); ctx.lineTo(P+TW-20,by+i*RH); ctx.stroke(); }
+    ctx.lineWidth=2; ctx.strokeStyle=RULE; rrect(ctx,P,ty,TW,tb-ty,R); ctx.stroke();
 
-    // ---- amount panel
-    y=tb+30; var PH=132;
+    // ---- ยอดที่ต้องชำระ
+    y=tb+26; var PH=140;
     var label = paid ? 'ยอดรวม' : (partial ? 'ยอดคงเหลือที่ต้องชำระ' : 'ยอดที่ต้องชำระ');
     var amt = money(paid? total : (partial? remain : total));
-    rrect(ctx,P,y,TW,PH,18); ctx.fillStyle = paid ? '#e4f4ea' : INK; ctx.fill();
+    rrect(ctx,P,y,TW,PH,22); ctx.fillStyle = paid ? '#e4f4ea' : INK; ctx.fill();
     var fg = paid ? NAVY : '#ffffff';
-    ctx.fillStyle=fg; F(ctx,500,32); var bw=ctx.measureText('บาท').width+14; T(ctx,'บาท',P+TW-30,y+PH/2+10,'r');
-    F(ctx,700,72); var aw=ctx.measureText(amt).width; T(ctx,amt,P+TW-30-bw,y+PH/2+2,'r');
-    ctx.fillStyle = paid ? NAVY : 'rgba(255,255,255,.92)'; fit(ctx,label,500,34,TW-60-aw-bw-30,22); T(ctx,label,P+30,y+PH/2+2);
+    ctx.fillStyle=fg; F(ctx,500,32); var bw=ctx.measureText('บาท').width+14; T(ctx,'บาท',P+TW-32,y+PH/2+12,'r');
+    F(ctx,700,78); var aw=ctx.measureText(amt).width; T(ctx,amt,P+TW-32-bw,y+PH/2+2,'r');
+    ctx.fillStyle = paid ? NAVY : 'rgba(255,255,255,.94)'; fit(ctx,label,500,35,TW-64-aw-bw-30,22); T(ctx,label,P+32,y+PH/2+2);
     if(paid){
-      // rubber stamp
       ctx.save(); var sx=P+TW*0.42, sy=y+PH/2; ctx.translate(sx,sy); ctx.rotate(-7*Math.PI/180);
       F(ctx,700,46); var sw=ctx.measureText('ชำระแล้ว').width+56, sh=84;
       ctx.strokeStyle=GREEN; ctx.lineWidth=5; rrect(ctx,-sw/2,-sh/2,sw,sh,12); ctx.stroke();
@@ -194,48 +234,69 @@
     }
     y+=PH;
 
-    // ---- how to pay
+    // ---- วิธีชำระเงิน : QR พร้อมเพย์ + เลขบัญชี อยู่ในการ์ดเดียว
     if(!paid){
-      y+=26; var kv=[]; if(d.due) kv.push(['กำหนดชำระ','ทุก'+d.due]); if(d.acct) kv.push(['โอนเข้าบัญชี',d.acct]);
-      if(kv.length){
-        var KW=210, VW=TW-56-KW, lines=[], hh=28;
-        F(ctx,600,32);
-        kv.forEach(function(p){ var ls=wrap(ctx,p[1],VW); lines.push(ls); hh+=ls.length*46+10; }); hh+=18;
-        rrect(ctx,P,y,TW,hh,18); ctx.fillStyle=PANEL; ctx.fill();
-        var yy=y+28+23;
-        kv.forEach(function(p,ix){
-          ctx.fillStyle=MUTED; F(ctx,400,28); T(ctx,p[0],P+28,yy);
-          ctx.fillStyle=NAVY; F(ctx,600,32); lines[ix].forEach(function(l){ T(ctx,l,P+28+KW,yy); yy+=46; }); yy+=10;
-        });
-        y+=hh;
-      }
-      // ---- QR พร้อมเพย์
       var due = partial? remain : total, payload = (due>0 && typeof qrcode==='function') ? ppPayload(d.pp, due) : '';
-      if(payload){
-        var qr=null; try{ qr=qrcode(0,'M'); qr.addData(payload); qr.make(); }catch(e){ qr=null; }
+      var qr=null; if(payload){ try{ qr=qrcode(0,'M'); qr.addData(payload); qr.make(); }catch(e){ qr=null; } }
+      var ac=acctParts(d.acct), acLines=null, IN=34, CW=TW-2*IN;
+      if(d.acct && !ac){ F(ctx,600,34); acLines=wrap(ctx,d.acct,CW); }
+      var hasAc=!!(ac||acLines);
+      if(qr || hasAc || d.due){
+        y+=26; var cy0=y, SH=78, n=0, cell=0, qs=0;
+        var bodyH=0, qH=0, aH=0;
+        if(qr){ n=qr.getModuleCount(); cell=Math.max(4,Math.floor(380/(n+8))); qs=cell*(n+8); qH=qs+84; }
+        if(ac) aH=(ac.bank?50:0)+86+(ac.name?52:0)+(qr?24:52); else if(acLines) aH=acLines.length*50+(qr?26:60);
+        bodyH=qH+aH+((qr&&hasAc)?58:0);
+        var cardH=SH+bodyH;
+        // พื้นการ์ด + แถบหัว
+        rrect(ctx,P,cy0,TW,cardH,22); ctx.fillStyle='#ffffff'; ctx.fill();
+        ctx.save(); rrect(ctx,P,cy0,TW,cardH,22); ctx.clip(); ctx.fillStyle=TINT; ctx.fillRect(P,cy0,TW,bodyH?SH:cardH); ctx.restore();
+        ctx.lineWidth=2; ctx.strokeStyle=RULE; rrect(ctx,P,cy0,TW,cardH,22); ctx.stroke();
+        ctx.fillStyle=INK; F(ctx,700,34); var hw=ctx.measureText('วิธีชำระเงิน').width; T(ctx,'วิธีชำระเงิน',P+IN,cy0+SH/2+1);
+        if(d.due){ var dt='กำหนดชำระ ทุก'+d.due; ctx.fillStyle=NAVY; fit(ctx,dt,500,29,CW-hw-40,18); T(ctx,dt,P+TW-IN,cy0+SH/2+1,'r'); }
+        y=cy0+SH;
         if(qr){
-          var n=qr.getModuleCount(), cell=Math.max(4,Math.floor(400/(n+8))), qs=cell*(n+8), QH=qs+56;
-          y+=26; rrect(ctx,P,y,TW,QH,18); ctx.fillStyle=PANEL; ctx.fill();
-          var qx=P+28, qy=y+28;
-          rrect(ctx,qx,qy,qs,qs,10); ctx.fillStyle='#ffffff'; ctx.fill();
+          var qx=P+IN+8, qy=y+42;
           ctx.fillStyle='#000000';
           for(var rr=0;rr<n;rr++) for(var cc=0;cc<n;cc++) if(qr.isDark(rr,cc)) ctx.fillRect(qx+(cc+4)*cell, qy+(rr+4)*cell, cell, cell);
-          var tx=qx+qs+36, tw=P+TW-28-tx, ty2=y+QH/2-118;
-          ctx.fillStyle=NAVY; fit(ctx,'สแกนจ่ายได้เลย',700,44,tw,28); T(ctx,'สแกนจ่ายได้เลย',tx,ty2); ty2+=62;
-          ctx.fillStyle=MUTED; F(ctx,400,29); wrap(ctx,'เปิดแอปธนาคาร แล้วสแกน QR นี้ ยอดเงินจะขึ้นให้เอง',tw).forEach(function(l){ T(ctx,l,tx,ty2); ty2+=42; }); ty2+=26;
-          var at=money(due)+' บาท'; ctx.fillStyle=INK; fit(ctx,at,700,52,tw,30); T(ctx,at,tx,ty2); ty2+=58;
+          // มุมกรอบแบบช่องสแกน
+          ctx.strokeStyle=INK; ctx.lineWidth=7; ctx.lineCap='round'; ctx.lineJoin='round';
+          var L=46, g=2, x0=qx+g, y0=qy+g, x1=qx+qs-g, y1=qy+qs-g;
+          [[x0,y0,1,1],[x1,y0,-1,1],[x0,y1,1,-1],[x1,y1,-1,-1]].forEach(function(c){ ctx.beginPath(); ctx.moveTo(c[0]+c[2]*L,c[1]); ctx.lineTo(c[0],c[1]); ctx.lineTo(c[0],c[1]+c[3]*L); ctx.stroke(); });
+          var tx=qx+qs+40, tw=P+TW-IN-tx, ty2=qy+qs/2-128;
+          ctx.fillStyle=NAVY; fit(ctx,'สแกนจ่ายได้เลย',700,46,tw,28); T(ctx,'สแกนจ่ายได้เลย',tx,ty2); ty2+=62;
+          ctx.fillStyle=MUTED; F(ctx,400,29); ['ใช้แอปธนาคารไหนก็ได้','ยอดเงินจะขึ้นให้เอง ไม่ต้องพิมพ์'].forEach(function(l){ fit(ctx,l,400,29,tw,20); T(ctx,l,tx,ty2); ty2+=42; }); ty2+=30;
+          var at=money(due); ctx.fillStyle=INK; fit(ctx,at,700,64,tw-70,34); var atw=ctx.measureText(at).width; T(ctx,at,tx,ty2);
+          ctx.fillStyle=INK; F(ctx,500,30); T(ctx,'บาท',tx+atw+12,ty2+10); ty2+=62;
           ctx.fillStyle=MUTED; fit(ctx,'พร้อมเพย์ '+ppMask(d.pp),400,27,tw,18); T(ctx,'พร้อมเพย์ '+ppMask(d.pp),tx,ty2);
-          y+=QH;
+          y+=qH;
         }
+        if(qr && hasAc){
+          var lab='หรือโอนเข้าบัญชี'; F(ctx,500,28); var lw=ctx.measureText(lab).width, my=y+18;
+          ctx.strokeStyle=RULE; ctx.lineWidth=2; ctx.lineCap='butt';
+          ctx.beginPath(); ctx.moveTo(P+IN,my); ctx.lineTo(P+TW/2-lw/2-20,my); ctx.moveTo(P+TW/2+lw/2+20,my); ctx.lineTo(P+TW-IN,my); ctx.stroke();
+          ctx.fillStyle=MUTED; T(ctx,lab,P+TW/2,my,'c'); y+=58;
+        }
+        if(ac){
+          var ay=y+(qr?6:34);
+          if(ac.bank){ ctx.fillStyle=NAVY; fit(ctx,ac.bank,600,34,CW,22); T(ctx,ac.bank,P+IN,ay+18); ay+=50; }
+          ctx.fillStyle=INK; fit(ctx,ac.no,700,66,CW,36); T(ctx,ac.no,P+IN,ay+40); ay+=86;
+          if(ac.name){ ctx.fillStyle=MUTED; F(ctx,400,30); var nw=ctx.measureText('ชื่อบัญชี  ').width; T(ctx,'ชื่อบัญชี',P+IN,ay+20); ctx.fillStyle=NAVY; fit(ctx,ac.name,600,32,CW-nw,20); T(ctx,ac.name,P+IN+nw,ay+20); }
+          y+=aH;
+        } else if(acLines){
+          var ly=y+(qr?6:34); ctx.fillStyle=NAVY; F(ctx,600,34); acLines.forEach(function(l){ T(ctx,l,P+IN,ly+20); ly+=50; }); y+=aH;
+        }
+        y=cy0+cardH;
       }
     }
-    // ---- notes
+    // ---- หมายเหตุท้ายบิล
     var notes=[];
-    F(ctx,400,26);
-    if(/^\d/.test(d.w1) && num(d.minAmt)>0) wrap(ctx,'ค่าน้ำไม่ถึง '+d.minUnit+' หน่วย คิดขั้นต่ำ '+money(d.minAmt)+' บาท',TW).forEach(function(l){notes.push(l)});
-    if(d.footer) wrap(ctx,d.footer,TW).forEach(function(l){notes.push(l)});
-    if(notes.length){ y+=30; ctx.fillStyle=MUTED; F(ctx,400,26); notes.forEach(function(l){ T(ctx,l,P,y+13); y+=40; }); }
-    y+=46;
+    F(ctx,400,27);
+    if(/^\d/.test(d.w1) && num(d.minAmt)>0) wrap(ctx,'ค่าน้ำไม่ถึง '+d.minUnit+' หน่วย คิดขั้นต่ำ '+money(d.minAmt)+' บาท',TW-8).forEach(function(l){notes.push(l)});
+    if(notes.length){ y+=32; ctx.fillStyle=MUTED; F(ctx,400,27); notes.forEach(function(l){ T(ctx,l,P+4,y+13); y+=40; }); }
+    if(d.footer){ y+=notes.length?14:34; ctx.fillStyle=NAVY; F(ctx,500,30); wrap(ctx,d.footer,TW-8).forEach(function(l){ T(ctx,l,P+4,y+15); y+=44; }); }
+    y+=44;
+    ctx.fillStyle=INK; ctx.fillRect(0,y,W,16); y+=16;
     var c=document.createElement('canvas'); c.width=W; c.height=Math.round(y);
     c.getContext('2d').drawImage(big,0,0);
     return c;
