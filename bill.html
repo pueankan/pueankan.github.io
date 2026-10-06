@@ -245,7 +245,8 @@
 
     // ---- วิธีชำระเงิน : QR พร้อมเพย์ + เลขบัญชี อยู่ในการ์ดเดียว
     if(!paid){
-      var due = partial? remain : total, payload = (due>0 && typeof qrcode==='function') ? ppPayload(d.pp, due) : '';
+      // QR ไม่ล็อกยอดเงิน: ลูกค้าพิมพ์ยอดเอง จ่ายไม่ครบได้ ส่วนที่เหลือยกไปเป็นยอดค้างรอบถัดไป
+      var due = partial? remain : total, payload = (due>0 && typeof qrcode==='function') ? ppPayload(d.pp, 0) : '';
       var qr=null; if(payload){ try{ qr=qrcode(0,'M'); qr.addData(payload); qr.make(); }catch(e){ qr=null; } }
       var ac=acctParts(d.acct), acLines=null, IN=34, CW=TW-2*IN;
       if(d.acct && !ac){ F(ctx,600,34); acLines=wrap(ctx,d.acct,CW); }
@@ -274,7 +275,7 @@
           [[x0,y0,1,1],[x1,y0,-1,1],[x0,y1,1,-1],[x1,y1,-1,-1]].forEach(function(c){ ctx.beginPath(); ctx.moveTo(c[0]+c[2]*L,c[1]); ctx.lineTo(c[0],c[1]); ctx.lineTo(c[0],c[1]+c[3]*L); ctx.stroke(); });
           var tx=qx+qs+40, tw=P+TW-IN-tx, ty2=qy+qs/2-128;
           ctx.fillStyle=NAVY; fit(ctx,'สแกนจ่ายได้เลย',700,46,tw,28); T(ctx,'สแกนจ่ายได้เลย',tx,ty2); ty2+=62;
-          ctx.fillStyle=MUTED; F(ctx,400,29); ['ใช้แอปธนาคารไหนก็ได้','ยอดเงินจะขึ้นให้เอง ไม่ต้องพิมพ์'].forEach(function(l){ fit(ctx,l,400,29,tw,20); T(ctx,l,tx,ty2); ty2+=42; }); ty2+=30;
+          ctx.fillStyle=MUTED; F(ctx,400,29); ['สแกนแล้วพิมพ์ยอดเงินเอง','ยอดที่ต้องชำระรอบนี้'].forEach(function(l){ fit(ctx,l,400,29,tw,20); T(ctx,l,tx,ty2); ty2+=42; }); ty2+=30;
           var at=money(due); ctx.fillStyle=INK; fit(ctx,at,700,64,tw-70,34); var atw=ctx.measureText(at).width; T(ctx,at,tx,ty2);
           ctx.fillStyle=INK; F(ctx,500,30); T(ctx,'บาท',tx+atw+12,ty2+10); ty2+=62;
           ctx.fillStyle=MUTED; fit(ctx,'พร้อมเพย์ '+ppMask(d.pp),400,27,tw,18); T(ctx,'พร้อมเพย์ '+ppMask(d.pp),tx,ty2);
@@ -333,7 +334,15 @@
     };
     $('bLine').onclick=go; $('bSave').onclick=go; img.onclick=go;
   }
-  getHash(function(h){
+  // กดส่งบิลห้องถัดไปแล้วเครื่องเปิดหน้านี้ซ้ำในแท็บเดิม (ลิงก์ต่างกันแค่หลัง #) หน้าจะไม่โหลดใหม่เอง
+  // จึงต้องจับเองว่าข้อมูลบิลเปลี่ยน แล้ววาดบิลใบใหม่ทับทันที ไม่ต้องปิดหน้าเก่า
+  var lastH=null, seq=0;
+  function boot(h){
+    lastH=h; var my=++seq;
+    var $=function(id){ return document.getElementById(id); };
+    $('msg').textContent='กำลังสร้างรูปบิล…'; $('msg').style.display='block'; $('ui').style.display='none';
+    $('done').style.display='none'; $('help').style.display='none'; $('shareBox').style.display='none'; $('dlBox').style.display='none'; $('hold').style.display='';
+    try{ window.scrollTo(0,0); }catch(e){}
     var p=readFields(h);
     if(p.length<20){ document.getElementById('msg').textContent='ไม่พบข้อมูลบิล กลับไปที่แอปแล้วกดปุ่ม “ส่งบิลให้ลูกค้า” อีกครั้ง'; return; }
     // ช่องที่ต้องเป็นตัวเลข ถ้าไม่ใช่ แปลว่าข้อมูลเลื่อนช่อง ห้ามแสดงบิลผิด ๆ ออกไป
@@ -342,14 +351,20 @@
     var d={title:p[0],sub:p[1],room:p[2],addr:p[3],round:p[4],rent:p[5],f1:p[6],f2:p[7],f3:p[8],f4:p[9],elec:p[10],w1:p[11],w2:p[12],w3:p[13],w4:p[14],water:p[15],trash:p[16],carry:p[17],disc:p[18],total:p[19],due:p[20]||'',acct:p[21]||'',minUnit:p[22]||'',minAmt:p[23]||'',footer:p[24]||'',status:p[25]||'',paid:p[26]||'',remain:p[27]==null?'':p[27],pp:p[29]||''};
     theme(p[28]);
     for(var k in d) d[k]=String(d[k]).trim();
-    var done=false, go=function(){ if(done) return; done=true; show(d); };
+    var done=false, go=function(){ if(done || my!==seq) return; done=true; show(d); };
     if(document.fonts && document.fonts.load){
       var ws=[400,500,600,700], ps=[];
       ws.forEach(function(w){ ps.push(document.fonts.load(w+" 34px 'IBM Plex Sans Thai Looped'","บิลค่าเช่า ชำระแล้ว")); ps.push(document.fonts.load(w+" 34px 'IBM Plex Sans Thai Looped'","0123456789 abc,.-")); });
       Promise.all(ps).then(go,go);
       setTimeout(go,2500);
     } else go();
-  });
+  }
+  function check(){ getHash(function(h){ if(h!==lastH) boot(h); }); }
+  getHash(boot);
+  window.addEventListener('hashchange', check);
+  window.addEventListener('pageshow', check);
+  window.addEventListener('focus', check);
+  document.addEventListener('visibilitychange', function(){ if(!document.hidden) check(); });
 })();
 </script>
 </body>
